@@ -22,8 +22,7 @@ func (b *bitmap) Fill(x1, x2, y1, y2 int, c color_t) {
 	}
 }
 
-func (b *bitmap) WriteFileHeader(f *os.File) error {
-	b.bfType = [2]byte{'B', 'M'}
+func (b *bitmap) writeFileHeader(f *os.File) error {
 	file_header_size := 14
 	info_header_size := 40
 
@@ -32,55 +31,56 @@ func (b *bitmap) WriteFileHeader(f *os.File) error {
 		return err
 	}
 
-	b.bfSize = 14 + 40 + calc_imagesize(b.biWidth, b.biHeight)
+	b.bfSize = 14 + 40 + calc_imagesize(b.biWidth, b.biHeight, int(b.biBitCount))
 
 	err = binary.Write(f, binary.LittleEndian, b.bfSize)
 	if err != nil {
 		return err
 	}
 
-	reserved := uint32(0)
-	err = binary.Write(f, binary.LittleEndian, reserved)
+	err = binary.Write(f, binary.LittleEndian, b.bfReserved1)
+	if err != nil {
+		return err
+	}
+	err = binary.Write(f, binary.LittleEndian, b.bfReserved2)
 	if err != nil {
 		return err
 	}
 
-	offset := uint32(file_header_size + info_header_size)
-	return binary.Write(f, binary.LittleEndian, offset)
+	b.bfOffsetBits = uint32(file_header_size + info_header_size)
+	return binary.Write(f, binary.LittleEndian, b.bfOffsetBits)
 }
 
-func (b *bitmap) WriteInfoHeader(f *os.File) error {
+func (b *bitmap) writeInfoHeader(f *os.File) error {
 	info_header := make([]byte, 0)
-	var header_size uint32 = 40
-	var planes uint16 = 1
-	b.biBitCount = 24
-	var compression uint32 = 0
-	var pixel_data_section_size = uint32(calc_imagesize(b.biWidth, b.biHeight))
-	var pixelX_per_meter uint32 = 0
-	var pixelY_per_meter uint32 = 0
-	var colors_used uint32 = 0
-	var important_colors uint32 = 0
+	b.biSize = 40
+	b.biCompression = 0
+	b.biSizeImage = calc_imagesize(b.biWidth, b.biHeight, int(b.biBitCount))
+	b.biXPelsPerMeter = 0
+	b.biYPelsPerMeter = 0
+	b.biClrUsed = 0
+	b.biClrImportant = 0
 
-	info_header = binary.LittleEndian.AppendUint32(info_header, header_size)
-	info_header = binary.LittleEndian.AppendUint32(info_header, uint32(b.biWidth))
-	info_header = binary.LittleEndian.AppendUint32(info_header, uint32(b.biHeight))
-	info_header = binary.LittleEndian.AppendUint16(info_header, planes)
+	info_header = binary.LittleEndian.AppendUint32(info_header, b.biSize)
+	info_header = binary.LittleEndian.AppendUint32(info_header, b.biWidth)
+	info_header = binary.LittleEndian.AppendUint32(info_header, b.biHeight)
+	info_header = binary.LittleEndian.AppendUint16(info_header, b.biPlane)
 	info_header = binary.LittleEndian.AppendUint16(info_header, b.biBitCount)
-	info_header = binary.LittleEndian.AppendUint32(info_header, compression)
-	info_header = binary.LittleEndian.AppendUint32(info_header, pixel_data_section_size)
-	info_header = binary.LittleEndian.AppendUint32(info_header, pixelX_per_meter)
-	info_header = binary.LittleEndian.AppendUint32(info_header, pixelY_per_meter)
-	info_header = binary.LittleEndian.AppendUint32(info_header, colors_used)
-	info_header = binary.LittleEndian.AppendUint32(info_header, important_colors)
+	info_header = binary.LittleEndian.AppendUint32(info_header, b.biCompression)
+	info_header = binary.LittleEndian.AppendUint32(info_header, b.biSizeImage)
+	info_header = binary.LittleEndian.AppendUint32(info_header, b.biXPelsPerMeter)
+	info_header = binary.LittleEndian.AppendUint32(info_header, b.biYPelsPerMeter)
+	info_header = binary.LittleEndian.AppendUint32(info_header, b.biClrUsed)
+	info_header = binary.LittleEndian.AppendUint32(info_header, b.biClrImportant)
 
 	return binary.Write(f, binary.LittleEndian, info_header)
 }
 
-func (b *bitmap) WritePixelData(f *os.File) error {
+func (b *bitmap) writePixelData(f *os.File) error {
 	var buffer bytes.Buffer
-	buffer.Grow(int(calc_imagesize(b.biWidth, b.biHeight)))
+	buffer.Grow(int(calc_imagesize(b.biWidth, b.biHeight, int(b.biBitCount))))
 
-	row_length := 4 * int((b.biWidth*uint32(b.biBitCount)+31)/32)
+	row_length := int(((b.biWidth*uint32(b.biBitCount) + 31) &^ 31) >> 3)
 
 	for y := int(b.biHeight - 1); y >= 0; y-- {
 		for x := 0; x < int(b.biWidth); x++ {
@@ -112,17 +112,17 @@ func (b *bitmap) WriteBitmap(filename string) error {
 	}
 	defer f.Close()
 
-	err = b.WriteFileHeader(f)
+	err = b.writeFileHeader(f)
 	if err != nil {
 		return err
 	}
 
-	err = b.WriteInfoHeader(f)
+	err = b.writeInfoHeader(f)
 	if err != nil {
 		return err
 	}
 
-	err = b.WritePixelData(f)
+	err = b.writePixelData(f)
 	if err != nil {
 		return err
 	}
