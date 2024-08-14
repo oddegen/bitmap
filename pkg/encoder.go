@@ -6,7 +6,7 @@ import (
 	"os"
 )
 
-func (b *bitmap) setPixel(x, y int, c color_t) {
+func (b *bitmap) SetPixel(x, y int, c color_t) {
 	if (x < 0 || x >= int(b.biWidth)) || (y < 0 || y >= int(b.biHeight)) {
 		panic("error: set_pixel, out of bounds")
 	}
@@ -17,7 +17,7 @@ func (b *bitmap) setPixel(x, y int, c color_t) {
 func (b *bitmap) Fill(x1, x2, y1, y2 int, c color_t) {
 	for y := y1; y <= y2; y++ {
 		for x := x1; x <= x2; x++ {
-			b.setPixel(x, y, c)
+			b.SetPixel(x, y, c)
 		}
 	}
 }
@@ -53,7 +53,7 @@ func (b *bitmap) WriteInfoHeader(f *os.File) error {
 	info_header := make([]byte, 0)
 	var header_size uint32 = 40
 	var planes uint16 = 1
-	var bits_per_pixel uint16 = 24
+	b.biBitCount = 24
 	var compression uint32 = 0
 	var pixel_data_section_size = uint32(calc_imagesize(b.biWidth, b.biHeight))
 	var pixelX_per_meter uint32 = 0
@@ -65,7 +65,7 @@ func (b *bitmap) WriteInfoHeader(f *os.File) error {
 	info_header = binary.LittleEndian.AppendUint32(info_header, uint32(b.biWidth))
 	info_header = binary.LittleEndian.AppendUint32(info_header, uint32(b.biHeight))
 	info_header = binary.LittleEndian.AppendUint16(info_header, planes)
-	info_header = binary.LittleEndian.AppendUint16(info_header, bits_per_pixel)
+	info_header = binary.LittleEndian.AppendUint16(info_header, b.biBitCount)
 	info_header = binary.LittleEndian.AppendUint32(info_header, compression)
 	info_header = binary.LittleEndian.AppendUint32(info_header, pixel_data_section_size)
 	info_header = binary.LittleEndian.AppendUint32(info_header, pixelX_per_meter)
@@ -77,7 +77,10 @@ func (b *bitmap) WriteInfoHeader(f *os.File) error {
 }
 
 func (b *bitmap) WritePixelData(f *os.File) error {
-	row_length := int(b.biWidth) * 3
+	var buffer bytes.Buffer
+	buffer.Grow(int(calc_imagesize(b.biWidth, b.biHeight)))
+
+	row_length := 4 * int((b.biWidth*uint32(b.biBitCount)+31)/32)
 
 	for y := int(b.biHeight - 1); y >= 0; y-- {
 		for x := 0; x < int(b.biWidth); x++ {
@@ -86,19 +89,18 @@ func (b *bitmap) WritePixelData(f *os.File) error {
 			green := byte(color >> 8)
 			blue := byte(color >> 16)
 
-			f.Write([]byte{blue, green, red})
+			buffer.Write([]byte{blue, green, red})
 		}
 
-		if row_length%4 != 0 {
-			var padding bytes.Buffer
-			for j := 0; j < 4-(row_length%4); j++ {
-				if err := padding.WriteByte(0); err != nil {
+		if padding := row_length % int(b.biWidth); padding != 0 {
+			for j := 0; j < padding; j++ {
+				if err := buffer.WriteByte(0); err != nil {
 					return err
 				}
 			}
-			f.Write(padding.Bytes())
 		}
 	}
+	f.Write(buffer.Bytes())
 
 	return nil
 }

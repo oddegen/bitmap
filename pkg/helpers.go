@@ -2,9 +2,8 @@ package bitmap
 
 import "fmt"
 
-func calc_imagesize(width, height uint32) uint32 {
-	row_length := width * 3
-	row_length += 4 - (row_length % 4)
+func calc_imagesize(width, height uint32, bpp int) uint32 {
+	row_length := ((width*uint32(bpp) + 31) &^ 31) >> 3
 	if row_length%4 != 0 {
 		panic("row_length % 4 != 0")
 	}
